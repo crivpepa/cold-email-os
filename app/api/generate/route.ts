@@ -112,7 +112,7 @@ likely_pains = real problems someone in best_persona role likely has right now (
 tone_match = how their existing copy sounds — terse, playful, technical, corporate, etc.`;
 
         const research = await client.messages.create({
-          model: "claude-sonnet-4-5",
+          model: "claude-sonnet-4-6",
           max_tokens: 2000,
           tools: [
             {
@@ -183,7 +183,7 @@ Return ONLY this exact JSON, no markdown, no commentary:
 The "cta" field is a one-line summary of what reply you're asking for — separate from the body.`;
 
           const emailRes = await client.messages.create({
-            model: "claude-sonnet-4-5",
+            model: "claude-sonnet-4-6",
             max_tokens: 700,
             messages: [{ role: "user", content: emailPrompt }],
           });
