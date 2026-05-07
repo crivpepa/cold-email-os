@@ -259,4 +259,4 @@ The "cta" field is a one-line summary of what reply you're asking for — separa
       "X-Accel-Buffering": "no",
     },
   });
-}fix: parallel email generation
+}
