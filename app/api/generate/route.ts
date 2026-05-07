@@ -6,6 +6,8 @@ import { EMAIL_ANGLES } from "@/lib/angles";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+const MODEL = "claude-sonnet-4-6";
+
 const RequestSchema = z.object({
   url: z.string().min(1),
   sender: z
@@ -86,8 +88,16 @@ export async function POST(req: NextRequest) {
         }
       };
 
+      const safeSend = (event: string, data: unknown) => {
+        try {
+          send(controller, encoder, event, data);
+        } catch {
+          /* connection already closed */
+        }
+      };
+
       try {
-        send(controller, encoder, "status", { phase: "researching", message: "Investigating company" });
+        safeSend("status", { phase: "researching", message: "Investigating company" });
 
         const researchPrompt = `You are researching the company at ${url} to write personalized cold outreach.
 
@@ -112,7 +122,7 @@ likely_pains = real problems someone in best_persona role likely has right now (
 tone_match = how their existing copy sounds — terse, playful, technical, corporate, etc.`;
 
         const research = await client.messages.create({
-          model: "claude-sonnet-4-6",
+          model: MODEL,
           max_tokens: 2000,
           tools: [
             {
@@ -142,7 +152,7 @@ tone_match = how their existing copy sounds — terse, playful, technical, corpo
           brief = { company_name: url, one_liner: "Research unavailable" };
         }
 
-        send(controller, encoder, "brief", brief);
+        safeSend("brief", brief);
 
         const senderBlock = `Sender:
 - Name: ${sender.name || "(not provided — sign as 'Your name')"}
@@ -151,12 +161,14 @@ tone_match = how their existing copy sounds — terse, playful, technical, corpo
 - Offer / what they sell: ${sender.offer || "(not provided — infer something useful from the brief)"}`;
 
         for (const angle of EMAIL_ANGLES) {
-          send(controller, encoder, "email_start", {
+          safeSend("email_start", {
             id: angle.id,
             name: angle.name,
             tagline: angle.tagline,
           });
+        }
 
+        const emailPromises = EMAIL_ANGLES.map(async (angle) => {
           const emailPrompt = `You are writing ONE cold email to a prospect at ${
             (brief as { company_name?: string }).company_name ?? url
           }.
@@ -182,46 +194,58 @@ Return ONLY this exact JSON, no markdown, no commentary:
 
 The "cta" field is a one-line summary of what reply you're asking for — separate from the body.`;
 
-          const emailRes = await client.messages.create({
-            model: "claude-sonnet-4-6",
-            max_tokens: 700,
-            messages: [{ role: "user", content: emailPrompt }],
-          });
+          try {
+            const emailRes = await client.messages.create({
+              model: MODEL,
+              max_tokens: 700,
+              messages: [{ role: "user", content: emailPrompt }],
+            });
 
-          const emailText = emailRes.content
-            .filter((b): b is Anthropic.Messages.TextBlock => b.type === "text")
-            .map((b) => b.text)
-            .join("\n")
-            .trim();
+            const emailText = emailRes.content
+              .filter((b): b is Anthropic.Messages.TextBlock => b.type === "text")
+              .map((b) => b.text)
+              .join("\n")
+              .trim();
 
-          let emailJson: { subject?: string; body?: string; cta?: string } = {};
-          const m = emailText.match(/\{[\s\S]*\}/);
-          if (m) {
-            try {
-              emailJson = JSON.parse(m[0]);
-            } catch {
+            let emailJson: { subject?: string; body?: string; cta?: string } = {};
+            const m = emailText.match(/\{[\s\S]*\}/);
+            if (m) {
+              try {
+                emailJson = JSON.parse(m[0]);
+              } catch {
+                emailJson = { subject: "Could not parse", body: emailText, cta: "" };
+              }
+            } else {
               emailJson = { subject: "Could not parse", body: emailText, cta: "" };
             }
-          } else {
-            emailJson = { subject: "Could not parse", body: emailText, cta: "" };
+
+            safeSend("email", {
+              id: angle.id,
+              name: angle.name,
+              tagline: angle.tagline,
+              subject: emailJson.subject ?? "",
+              body: emailJson.body ?? "",
+              cta: emailJson.cta ?? "",
+            });
+          } catch (err) {
+            const message =
+              err instanceof Error ? err.message : "Unknown error generating variant";
+            safeSend("email_error", {
+              id: angle.id,
+              name: angle.name,
+              message,
+            });
           }
+        });
 
-          send(controller, encoder, "email", {
-            id: angle.id,
-            name: angle.name,
-            tagline: angle.tagline,
-            subject: emailJson.subject ?? "",
-            body: emailJson.body ?? "",
-            cta: emailJson.cta ?? "",
-          });
-        }
+        await Promise.all(emailPromises);
 
-        send(controller, encoder, "done", { ok: true });
+        safeSend("done", { ok: true });
         close();
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Unknown error during generation.";
-        send(controller, encoder, "error", { message });
+        safeSend("error", { message });
         close();
       }
     },
@@ -235,4 +259,4 @@ The "cta" field is a one-line summary of what reply you're asking for — separa
       "X-Accel-Buffering": "no",
     },
   });
-}
+}fix: parallel email generation
