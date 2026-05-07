@@ -158,6 +158,13 @@ export function GenerateFlow() {
         );
         break;
       }
+      case "email_error": {
+        const d = data as { id: string };
+        setEmails((prev) =>
+          prev.map((e) => (e.id === d.id ? { ...e, status: "error" } : e))
+        );
+        break;
+      }
       case "done": {
         setPhase("done");
         setStatusMsg("");
@@ -288,4 +295,4 @@ export function GenerateFlow() {
       )}
     </div>
   );
-}
+}fix: handle email errors gracefully
