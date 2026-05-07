@@ -295,4 +295,4 @@ export function GenerateFlow() {
       )}
     </div>
   );
-}fix: handle email errors gracefully
+}
